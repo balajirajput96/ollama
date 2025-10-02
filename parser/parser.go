@@ -283,19 +283,27 @@ func filesForModel(path string) ([]string, error) {
 	}
 
 	// add configuration files, json files are detected as text/plain
-	js, err := glob(filepath.Join(path, "*.json"), "text/plain")
+	// includes both root-level and nested json files (e.g., bert models require nested config.json)
+	err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(p) == ".json" {
+			if ct, err := detectContentType(p); err != nil {
+				return err
+			} else if ct != "text/plain" {
+				return fmt.Errorf("invalid content type: expected %s for %s", ct, p)
+			}
+			files = append(files, p)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	files = append(files, js...)
-
-	// bert models require a nested config.json
-	// TODO(mxyng): merge this with the glob above
-	js, err = glob(filepath.Join(path, "**/*.json"), "text/plain")
-	if err != nil {
-		return nil, err
-	}
-	files = append(files, js...)
 
 	// only include tokenizer.model is tokenizer.json is not present
 	if !slices.ContainsFunc(files, func(s string) bool {
